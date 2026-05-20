@@ -31,12 +31,11 @@ Data_DIR.mkdir(exist_ok=True)
 # Top 50 S&P 500 Companies (as of 2024)
 TOP_SP500_STOCKS = [
     'AAPL', 'MSFT', 'GOOG', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'META',
-    'BRK.B', 'JNJ', 'V', 'WMT', 'JPM', 'PG', 'MA', 'HD', 'MCD', 'BA',
-    'NFLX', 'PYPL', 'INTC', 'AMD', 'IBM', 'CSCO', 'PEP', 'KO', 'COST',
+    'JNJ', 'V', 'WMT', 'JPM', 'PG', 'MA', 'HD', 'MCD',
+    'NFLX', 'INTC', 'AMD', 'IBM', 'CSCO', 'PEP', 'KO', 'COST',
     'ABBV', 'LLY', 'MRK', 'PFE', 'TMO', 'ABT', 'ADBE', 'CRM', 'ORCL',
     'DIS', 'QCOM', 'AVGO', 'ACN', 'ASML', 'NKE', 'CMCSA', 'TXN', 'WDAY',
-    'NOW', 'BKNG', 'MSCI', 'FISV', 'ROP'
-]
+    'NOW', 'BKNG', 'MSCI', 'FISV', 'ROP', 'BA', 'PYPL', 'AVGO'\n]
 
 
 class FinancialDataDownloader:
@@ -80,9 +79,49 @@ class FinancialDataDownloader:
         print("="*60)
         
         try:
-            sp500 = yf.download('^GSPC', start=self.start_date, end=self.end_date, progress=False)
+            sp500 = yf.download('^GSPC', start=self.start_date, end=self.end_date, 
+                               progress=False, timeout=30)
+            
+            if sp500 is None or len(sp500) == 0:
+                print("✗ No data returned from Yahoo Finance")
+                return None
+            
+            # Reset index to make Date a column
             sp500 = sp500.reset_index()
-            sp500.columns = ['Date', 'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']
+            
+            # Get the actual column names from the downloaded data
+            actual_cols = list(sp500.columns)
+            
+            # Map to standard names (handle case variations)
+            col_mapping = {}
+            for col in actual_cols:
+                col_lower = col.lower()
+                if col_lower == 'date':
+                    col_mapping[col] = 'Date'
+                elif col_lower == 'open':
+                    col_mapping[col] = 'Open'
+                elif col_lower == 'high':
+                    col_mapping[col] = 'High'
+                elif col_lower == 'low':
+                    col_mapping[col] = 'Low'
+                elif col_lower == 'close':
+                    col_mapping[col] = 'Close'
+                elif 'adj close' in col_lower or 'adjclose' in col_lower:
+                    col_mapping[col] = 'Adj Close'
+                elif col_lower == 'volume':
+                    col_mapping[col] = 'Volume'
+            
+            sp500 = sp500.rename(columns=col_mapping)
+            
+            # Keep only essential columns
+            essential_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']
+            available_cols = [col for col in essential_cols if col in sp500.columns]
+            
+            if len(available_cols) < 6:
+                print(f"✗ Not enough columns. Available: {available_cols}")
+                return None
+            
+            sp500 = sp500[available_cols]
             sp500['Ticker'] = '^GSPC'
             
             print(f"✓ Downloaded {len(sp500)} records")
@@ -92,19 +131,17 @@ class FinancialDataDownloader:
             return sp500
         
         except Exception as e:
-            print(f"✗ Error downloading S&P 500 index: {e}")
+            print(f"✗ Error downloading S&P 500 index: {str(e)[:100]}")
             return None
     
-    def download_stock_data(self, tickers=None, batch_size=10):
+    def download_stock_data(self, tickers=None):
         """
-        Download historical data for multiple stocks.
+        Download historical data for multiple stocks individually.
         
         Parameters:
         -----------
         tickers : list, optional
             List of stock tickers (default: TOP_SP500_STOCKS)
-        batch_size : int
-            Number of stocks to download at once
         
         Returns:
         --------
@@ -114,207 +151,4 @@ class FinancialDataDownloader:
             tickers = TOP_SP500_STOCKS
         
         print("\n" + "="*60)
-        print(f"Downloading {len(tickers)} Stock Data...")
-        print("="*60)
-        
-        all_data = []
-        
-        # Download in batches to avoid rate limiting
-        for i in tqdm(range(0, len(tickers), batch_size), desc="Download Progress"):
-            batch = tickers[i:i+batch_size]
-            
-            try:
-                batch_data = yf.download(batch, start=self.start_date, end=self.end_date, 
-                                        progress=False, group_by='ticker')
-                
-                for ticker in batch:
-                    try:
-                        if ticker in batch_data.columns.get_level_values(0) or len(batch) == 1:
-                            if len(batch) == 1:
-                                ticker_data = batch_data.copy()
-                            else:
-                                ticker_data = batch_data[ticker]
-                            
-                            df = ticker_data.reset_index()
-                            df.columns = ['Date', 'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']
-                            df['Ticker'] = ticker
-                            all_data.append(df)
-                    
-                    except Exception as e:
-                        print(f"  ⚠ Skipping {ticker}: {str(e)[:50]}")
-            
-            except Exception as e:
-                print(f"  ⚠ Batch error: {str(e)[:50]}")
-        
-        if all_data:
-            combined_df = pd.concat(all_data, ignore_index=True)
-            print(f"\n✓ Downloaded {len(combined_df)} records for {combined_df['Ticker'].nunique()} stocks")
-            return combined_df
-        else:
-            print("✗ No data downloaded")
-            return None
-    
-    def calculate_correlations(self, stock_data):
-        """
-        Calculate correlation matrix between stocks.
-        
-        Parameters:
-        -----------
-        stock_data : pd.DataFrame
-            Stock data with Adj Close prices
-        
-        Returns:
-        --------
-        pd.DataFrame : Correlation matrix
-        """
-        print("\n" + "="*60)
-        print("Calculating Stock Correlations...")
-        print("="*60)
-        
-        try:
-            # Pivot to get prices by ticker
-            pivot_data = stock_data.pivot(index='Date', columns='Ticker', values='Adj Close')
-            
-            # Calculate correlations
-            correlations = pivot_data.corr()
-            
-            print(f"✓ Calculated correlations for {len(correlations)} stocks")
-            return correlations
-        
-        except Exception as e:
-            print(f"✗ Error calculating correlations: {e}")
-            return None
-    
-    def calculate_market_aggregate(self, stock_data):
-        """
-        Calculate daily market aggregate statistics.
-        
-        Parameters:
-        -----------
-        stock_data : pd.DataFrame
-            Stock data
-        
-        Returns:
-        --------
-        pd.DataFrame : Daily market aggregates
-        """
-        print("\n" + "="*60)
-        print("Calculating Market Aggregates...")
-        print("="*60)
-        
-        try:
-            daily_agg = stock_data.groupby('Date').agg({
-                'Adj Close': ['mean', 'median', 'std', 'min', 'max'],
-                'Volume': ['sum', 'mean'],
-                'Ticker': 'count'
-            }).reset_index()
-            
-            daily_agg.columns = ['Date', 'Avg_Price', 'Median_Price', 'Std_Price', 
-                                'Min_Price', 'Max_Price', 'Total_Volume', 'Avg_Volume', 'Stock_Count']
-            
-            print(f"✓ Calculated aggregates for {len(daily_agg)} days")
-            return daily_agg
-        
-        except Exception as e:
-            print(f"✗ Error calculating aggregates: {e}")
-            return None
-    
-    def save_data(self, sp500_data, stock_data, correlations, aggregates):
-        """
-        Save all data to CSV files with Git LFS tracking.
-        
-        Parameters:
-        -----------
-        sp500_data : pd.DataFrame
-            S&P 500 index data
-        stock_data : pd.DataFrame
-            Individual stock data
-        correlations : pd.DataFrame
-            Correlation matrix
-        aggregates : pd.DataFrame
-            Market aggregates
-        """
-        print("\n" + "="*60)
-        print("Saving Data to Files...")
-        print("="*60)
-        
-        files_saved = []
-        
-        # Save S&P 500 index
-        if sp500_data is not None:
-            index_file = Data_DIR / 'sp500_index.csv'
-            sp500_data.to_csv(index_file, index=False)
-            files_saved.append(('sp500_index.csv', sp500_data.memory_usage(deep=True).sum() / 1024**2))
-        
-        # Save stock data
-        if stock_data is not None:
-            stocks_file = Data_DIR / 'sp500_stocks.csv'
-            stock_data.to_csv(stocks_file, index=False)
-            files_saved.append(('sp500_stocks.csv', stock_data.memory_usage(deep=True).sum() / 1024**2))
-        
-        # Save correlations
-        if correlations is not None:
-            corr_file = Data_DIR / 'stock_correlations.csv'
-            correlations.to_csv(corr_file)
-            files_saved.append(('stock_correlations.csv', correlations.memory_usage(deep=True).sum() / 1024**2))
-        
-        # Save aggregates
-        if aggregates is not None:
-            agg_file = Data_DIR / 'market_daily_aggregate.csv'
-            aggregates.to_csv(agg_file, index=False)
-            files_saved.append(('market_daily_aggregate.csv', aggregates.memory_usage(deep=True).sum() / 1024**2))
-        
-        # Print summary
-        total_size = 0
-        for filename, size_mb in files_saved:
-            print(f"✓ Saved {filename}: {size_mb:.2f} MB")
-            total_size += size_mb
-        
-        print(f"\n{'='*60}")
-        print(f"Total data size: {total_size:.2f} MB")
-        print(f"Location: {Data_DIR.absolute()}")
-        print(f"{'='*60}")
-    
-    def run_full_pipeline(self):
-        """
-        Run the complete download and processing pipeline.
-        """
-        print("\n" + "#"*60)
-        print("# FINANCIAL DATA DOWNLOAD PIPELINE")
-        print("#"*60)
-        
-        # Download data
-        sp500_data = self.download_sp500_index()
-        stock_data = self.download_stock_data()
-        
-        if stock_data is not None:
-            # Process data
-            correlations = self.calculate_correlations(stock_data)
-            aggregates = self.calculate_market_aggregate(stock_data)
-            
-            # Save data
-            self.save_data(sp500_data, stock_data, correlations, aggregates)
-            
-            print("\n" + "#"*60)
-            print("# PIPELINE COMPLETE!")
-            print("#"*60)
-            print("\nNext steps:")
-            print("1. python regression_analysis.py")
-            print("2. python forecasting.py")
-            return True
-        else:
-            print("\n✗ Pipeline failed: No stock data downloaded")
-            return False
-
-
-if __name__ == "__main__":
-    # Initialize downloader
-    downloader = FinancialDataDownloader(lookback_years=10)
-    
-    # Run pipeline
-    success = downloader.run_full_pipeline()
-    
-    if success:
-        print("\n✓ All data successfully downloaded and saved!")
-    else:
-        print("\n✗ Download failed. Check your internet connection and try again.")
+        print(f"Downloading {len(tickers)} Stock Data...\")\n        print(\"=\"*60)\n        \n        all_data = []\n        failed_tickers = []\n        \n        # Download individually to avoid yfinance compatibility issues\n        for ticker in tqdm(tickers, desc=\"Download Progress\"):\n            try:\n                # Download single ticker\n                ticker_data = yf.download(ticker, start=self.start_date, end=self.end_date,\n                                         progress=False, timeout=30)\n                \n                if ticker_data is None or len(ticker_data) == 0:\n                    failed_tickers.append(ticker)\n                    continue\n                \n                # Reset index to make Date a column\n                ticker_data = ticker_data.reset_index()\n                \n                # Get actual column names\n                actual_cols = list(ticker_data.columns)\n                \n                # Map to standard names\n                col_mapping = {}\n                for col in actual_cols:\n                    col_lower = col.lower()\n                    if col_lower == 'date':\n                        col_mapping[col] = 'Date'\n                    elif col_lower == 'open':\n                        col_mapping[col] = 'Open'\n                    elif col_lower == 'high':\n                        col_mapping[col] = 'High'\n                    elif col_lower == 'low':\n                        col_mapping[col] = 'Low'\n                    elif col_lower == 'close':\n                        col_mapping[col] = 'Close'\n                    elif 'adj close' in col_lower or 'adjclose' in col_lower:\n                        col_mapping[col] = 'Adj Close'\n                    elif col_lower == 'volume':\n                        col_mapping[col] = 'Volume'\n                \n                ticker_data = ticker_data.rename(columns=col_mapping)\n                \n                # Keep essential columns only\n                essential_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']\n                available_cols = [col for col in essential_cols if col in ticker_data.columns]\n                \n                if len(available_cols) >= 6:  # Must have at least 6 columns\n                    ticker_data = ticker_data[available_cols]\n                    ticker_data['Ticker'] = ticker\n                    all_data.append(ticker_data)\n                else:\n                    failed_tickers.append(ticker)\n            \n            except Exception as e:\n                failed_tickers.append(ticker)\n        \n        if all_data:\n            combined_df = pd.concat(all_data, ignore_index=True)\n            print(f\"\\n✓ Downloaded {len(combined_df)} records for {combined_df['Ticker'].nunique()} stocks\")\n            if failed_tickers:\n                print(f\"✗ Failed: {len(failed_tickers)} tickers ({', '.join(failed_tickers[:10])}...)\")\n            return combined_df\n        else:\n            print(\"\\n✗ No data downloaded\")\n            return None\n    \n    def calculate_correlations(self, stock_data):\n        \"\"\"\n        Calculate correlation matrix between stocks.\n        \n        Parameters:\n        -----------\n        stock_data : pd.DataFrame\n            Stock data with Adj Close prices\n        \n        Returns:\n        --------\n        pd.DataFrame : Correlation matrix\n        \"\"\"\n        print(\"\\n\" + \"=\"*60)\n        print(\"Calculating Stock Correlations...\")\n        print(\"=\"*60)\n        \n        try:\n            # Pivot to get prices by ticker\n            pivot_data = stock_data.pivot(index='Date', columns='Ticker', values='Adj Close')\n            \n            # Calculate correlations\n            correlations = pivot_data.corr()\n            \n            print(f\"✓ Calculated correlations for {len(correlations)} stocks\")\n            return correlations\n        \n        except Exception as e:\n            print(f\"✗ Error calculating correlations: {e}\")\n            return None\n    \n    def calculate_market_aggregate(self, stock_data):\n        \"\"\"\n        Calculate daily market aggregate statistics.\n        \n        Parameters:\n        -----------\n        stock_data : pd.DataFrame\n            Stock data\n        \n        Returns:\n        --------\n        pd.DataFrame : Daily market aggregates\n        \"\"\"\n        print(\"\\n\" + \"=\"*60)\n        print(\"Calculating Market Aggregates...\")\n        print(\"=\"*60)\n        \n        try:\n            daily_agg = stock_data.groupby('Date').agg({\n                'Adj Close': ['mean', 'median', 'std', 'min', 'max'],\n                'Volume': ['sum', 'mean'],\n                'Ticker': 'count'\n            }).reset_index()\n            \n            daily_agg.columns = ['Date', 'Avg_Price', 'Median_Price', 'Std_Price', \n                                'Min_Price', 'Max_Price', 'Total_Volume', 'Avg_Volume', 'Stock_Count']\n            \n            print(f\"✓ Calculated aggregates for {len(daily_agg)} days\")\n            return daily_agg\n        \n        except Exception as e:\n            print(f\"✗ Error calculating aggregates: {e}\")\n            return None\n    \n    def save_data(self, sp500_data, stock_data, correlations, aggregates):\n        \"\"\"\n        Save all data to CSV files with Git LFS tracking.\n        \n        Parameters:\n        -----------\n        sp500_data : pd.DataFrame\n            S&P 500 index data\n        stock_data : pd.DataFrame\n            Individual stock data\n        correlations : pd.DataFrame\n            Correlation matrix\n        aggregates : pd.DataFrame\n            Market aggregates\n        \"\"\"\n        print(\"\\n\" + \"=\"*60)\n        print(\"Saving Data to Files...\")\n        print(\"=\"*60)\n        \n        files_saved = []\n        \n        # Save S&P 500 index\n        if sp500_data is not None and len(sp500_data) > 0:\n            index_file = Data_DIR / 'sp500_index.csv'\n            sp500_data.to_csv(index_file, index=False)\n            size_mb = sp500_data.memory_usage(deep=True).sum() / 1024**2\n            files_saved.append(('sp500_index.csv', size_mb))\n        \n        # Save stock data\n        if stock_data is not None and len(stock_data) > 0:\n            stocks_file = Data_DIR / 'sp500_stocks.csv'\n            stock_data.to_csv(stocks_file, index=False)\n            size_mb = stock_data.memory_usage(deep=True).sum() / 1024**2\n            files_saved.append(('sp500_stocks.csv', size_mb))\n        \n        # Save correlations\n        if correlations is not None and len(correlations) > 0:\n            corr_file = Data_DIR / 'stock_correlations.csv'\n            correlations.to_csv(corr_file)\n            size_mb = correlations.memory_usage(deep=True).sum() / 1024**2\n            files_saved.append(('stock_correlations.csv', size_mb))\n        \n        # Save aggregates\n        if aggregates is not None and len(aggregates) > 0:\n            agg_file = Data_DIR / 'market_daily_aggregate.csv'\n            aggregates.to_csv(agg_file, index=False)\n            size_mb = aggregates.memory_usage(deep=True).sum() / 1024**2\n            files_saved.append(('market_daily_aggregate.csv', size_mb))\n        \n        # Print summary\n        total_size = 0\n        for filename, size_mb in files_saved:\n            print(f\"✓ Saved {filename}: {size_mb:.2f} MB\")\n            total_size += size_mb\n        \n        print(f\"\\n{'='*60}\")\n        print(f\"Total data size: {total_size:.2f} MB\")\n        print(f\"Location: {Data_DIR.absolute()}\")\n        print(f\"{'='*60}\")\n    \n    def run_full_pipeline(self):\n        \"\"\"\n        Run the complete download and processing pipeline.\n        \"\"\"\n        print(\"\\n\" + \"#\"*60)\n        print(\"# FINANCIAL DATA DOWNLOAD PIPELINE\")\n        print(\"#\"*60)\n        \n        # Download data\n        sp500_data = self.download_sp500_index()\n        stock_data = self.download_stock_data()\n        \n        if stock_data is not None and len(stock_data) > 0:\n            # Process data\n            correlations = self.calculate_correlations(stock_data)\n            aggregates = self.calculate_market_aggregate(stock_data)\n            \n            # Save data\n            self.save_data(sp500_data, stock_data, correlations, aggregates)\n            \n            print(\"\\n\" + \"#\"*60)\n            print(\"# PIPELINE COMPLETE!\")\n            print(\"#\"*60)\n            print(\"\\nNext steps:\")\n            print(\"1. python regression_analysis.py\")\n            print(\"2. python forecasting.py\")\n            return True\n        else:\n            print(\"\\n✗ Pipeline failed: No stock data downloaded\")\n            return False\n\n\nif __name__ == \"__main__\":\n    # Initialize downloader\n    downloader = FinancialDataDownloader(lookback_years=10)\n    \n    # Run pipeline\n    success = downloader.run_full_pipeline()\n    \n    if success:\n        print(\"\\n✓ All data successfully downloaded and saved!\")\n    else:\n        print(\"\\n✗ Download failed. Check your internet connection and try again.\")\n
