@@ -203,7 +203,7 @@ class StockForecaster:
                 seasonal=None,
                 initialization_method='estimated'
             )
-            fitted_model = model.fit(optimized=True, disp=False)
+            fitted_model = model.fit(optimized=True)
             
             # Predict on test set
             y_pred_test = fitted_model.forecast(steps=len(self.test_prices))
@@ -337,10 +337,14 @@ class StockForecaster:
             model = RandomForestRegressor(n_estimators=n_estimators, random_state=42, n_jobs=-1)
             model.fit(X, y)
             
-            # Predict on test set
-            X_test = np.array([np.concatenate([self.train_prices[-(lags-i):], self.test_prices[:i]]) 
-                              for i in range(1, len(self.test_prices) + 1)])
-            y_pred_test = model.predict(X_test)
+            # Predict on test set using a rolling window
+            window = list(self.train_prices[-lags:])
+            y_pred_test = []
+            for i in range(len(self.test_prices)):
+                pred = model.predict(np.array([window[-lags:]]))[0]
+                y_pred_test.append(pred)
+                window.append(self.test_prices[i])
+            y_pred_test = np.array(y_pred_test)
             
             # Metrics
             metrics = self._calculate_metrics(self.test_prices[:len(y_pred_test)], y_pred_test, 'Random Forest')
@@ -422,10 +426,14 @@ class StockForecaster:
             )
             model.fit(X, y)
             
-            # Predict on test set
-            X_test = np.array([np.concatenate([self.train_prices[-(lags-i):], self.test_prices[:i]]) 
-                              for i in range(1, len(self.test_prices) + 1)])
-            y_pred_test = model.predict(X_test)
+            # Predict on test set using a rolling window
+            window = list(self.train_prices[-lags:])
+            y_pred_test = []
+            for i in range(len(self.test_prices)):
+                pred = model.predict(np.array([window[-lags:]]))[0]
+                y_pred_test.append(pred)
+                window.append(self.test_prices[i])
+            y_pred_test = np.array(y_pred_test)
             
             # Metrics
             metrics = self._calculate_metrics(self.test_prices[:len(y_pred_test)], y_pred_test, 'Gradient Boosting')
