@@ -45,10 +45,6 @@ env/
 data/
 !data/.gitkeep
 
-# Results
-results/
-!results/.gitkeep
-
 # Temporary files
 *.tmp
 *.temp
