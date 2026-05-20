@@ -5,11 +5,11 @@ A comprehensive stock market analysis and forecasting portfolio featuring S&P 50
 ## 🎯 Features
 
 ### Data Management
-- ✅ **10 years of S&P 500 data** - Historical price and volume data
-- ✅ **50 major S&P 500 stocks** - Individual company performance
-- ✅ **200-500 MB datasets** - Stored in Git LFS for efficiency
-- ✅ **Market aggregates** - Daily market-wide statistics
-- ✅ **Correlation analysis** - Stock correlations matrices
+-  **10 years of S&P 500 data** - Historical price and volume data
+-  **50 major S&P 500 stocks** - Individual company performance
+-  **200-500 MB datasets** - Stored in Git LFS for efficiency
+-  **Market aggregates** - Daily market-wide statistics
+-  **Correlation analysis** - Stock correlations matrices
 
 ### Regression Analysis
 - 📈 **Linear Regression** - Trend analysis with R² and RMSE metrics
